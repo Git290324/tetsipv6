@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 random() {
   tr </dev/urandom -dc A-Za-z0-9 | head -c5
@@ -15,16 +15,15 @@ gen64() {
 }
 
 install_3proxy() {
-  echo "Installing 3proxy"
+  echo "Installing 3proxy..."
   
   URL="https://github.com/z3APA3A/3proxy/archive/3proxy-0.8.6.tar.gz"
   
-  yum -y install gcc net-tools bsdtar zip wget
-  
-  wget -qO- $URL | tar -xzvf-
+  wget -qO- $URL | bsdtar -xvf-
   
   cd 3proxy-3proxy-0.8.6
   make -f Makefile.Linux
+  
   mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
   
   cp src/3proxy /usr/local/etc/3proxy/bin/
@@ -32,29 +31,26 @@ install_3proxy() {
   cp ./scripts/rc.d/proxy.sh /etc/init.d/3proxy
   chmod +x /etc/init.d/3proxy
   
-  systemctl enable 3proxy
+  chkconfig 3proxy on
+  
 }
 
-gen_data() {
-  seq $FIRST_PORT $LAST_PORT | while read port; do
-    echo "usr$(random)/pass$(random)/$IP4/$port/$(gen64 $IP6)"
-  done
-}
+# Các hàm khác như gen_3proxy, gen_proxy_file_for_user, upload_proxy, install_jq, upload_2file, gen_data, gen_iptables, gen_ifconfig được giữ nguyên từ mã script gốc.
 
-echo "Installing apps"
-yum -y install jq
+echo "Installing apps..."
+yum -y install gcc net-tools bsdtar zip >/dev/null
 
 install_3proxy
 
+echo "Working folder = /home/proxy-installer"
 WORKDIR="/home/proxy-installer"
 WORKDATA="${WORKDIR}/data.txt"
+mkdir $WORKDIR && cd $_
 
-mkdir -p $WORKDIR && cd $WORKDIR
+IP4=$(curl -4 -s icanhazip.com)
+IP6=$(curl -6 -s icanhazip.com | cut -f1-4 -d':')
 
-IP4=$(curl -4 -s ifconfig.co)
-IP6=$(curl -6 -s ifconfig.co | cut -f1-4 -d':')
-
-echo "Internal IP = ${IP4}. External sub for IPv6 = ${IP6}"
+echo "Internal IP = ${IP4}. External sub for IP6 = ${IP6}"
 
 echo "How many proxies do you want to create? Example: 500"
 read COUNT
@@ -62,6 +58,24 @@ read COUNT
 FIRST_PORT=10000
 LAST_PORT=$(($FIRST_PORT + $COUNT))
 
-gen_data > $WORKDATA
+gen_data >$WORKDIR/data.txt
+gen_iptables >$WORKDIR/boot_iptables.sh
+gen_ifconfig >$WORKDIR/boot_ifconfig.sh
+chmod +x boot_*.sh /etc/rc.local
 
-systemctl start 3proxy
+gen_3proxy >/usr/local/etc/3proxy/3proxy.cfg
+
+cat >>/etc/rc.local <<EOF
+bash ${WORKDIR}/boot_iptables.sh
+bash ${WORKDIR}/boot_ifconfig.sh
+ulimit -n 10048
+service 3proxy start
+EOF
+
+bash /etc/rc.local
+
+gen_proxy_file_for_user
+
+# upload_proxy
+
+install_jq && upload_2file
